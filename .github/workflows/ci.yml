@@ -29,10 +29,18 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Set up FFmpeg
+      - name: Set up FFmpeg (Windows & Linux)
+        if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           ffmpeg-version: release
+
+      - name: Set up FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v ffmpeg &> /dev/null; then
+            brew install ffmpeg
+          fi
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
