@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Media & Temp Files (Allow test fixtures under tests/)
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.wav
+*.mp3
+*.flac
+*.aac
+!tests/fixtures/**
+temp/
+tmp/
+_tmp_stitch_*
+test_output/
+*.log
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
