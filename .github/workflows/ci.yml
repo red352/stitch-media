@@ -29,11 +29,11 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Set up FFmpeg (Windows & Linux)
-        if: runner.os != 'macOS'
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          ffmpeg-version: release
+      - name: Set up FFmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Set up FFmpeg (macOS)
         if: runner.os == 'macOS'
@@ -41,6 +41,12 @@ jobs:
           if ! command -v ffmpeg &> /dev/null; then
             brew install ffmpeg
           fi
+
+      - name: Set up FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
