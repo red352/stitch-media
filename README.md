@@ -67,25 +67,50 @@ flowchart TD
 
 ---
 
-## Installation
+## Installation & Execution
 
 ### Prerequisites
 - Python 3.10 or higher
 - [FFmpeg](https://ffmpeg.org/download.html) installed and available on your system `PATH`.
 
-### Install with `uv` (Recommended)
+### Setup with `uv` (Recommended)
 ```bash
 # Clone the repository
 git clone https://github.com/red352/stitch-media.git
 cd stitch-media
 
-# Install dependencies using uv
+# Sync dependencies into local virtual environment (.venv)
 uv sync
 ```
 
-### Install with `pip`
+### How to Run the CLI
+Because `uv sync` installs into an isolated virtual environment (`.venv/`), choose any of the three ways to run:
+
+#### Option 1: Via `uv run` (Zero Activation, Recommended)
 ```bash
-pip install -e .
+uv run stitch-media --help
+uv run stitch-media version
+uv run stitch-media join clip1.mp4 clip2.mp4 -o out.mp4
+```
+
+#### Option 2: Activate Virtual Environment
+- **Windows (PowerShell)**:
+  ```powershell
+  .venv\Scripts\activate
+  stitch-media --help
+  ```
+- **Linux / macOS**:
+  ```bash
+  source .venv/bin/activate
+  stitch-media --help
+  ```
+
+#### Option 3: Install Globally as a System CLI Tool
+Install directly into uv's global tool directory so you can invoke `stitch-media` from **any** directory without navigating to the repo:
+```bash
+uv tool install .
+# Now available globally:
+stitch-media --help
 ```
 
 ---
@@ -95,18 +120,18 @@ pip install -e .
 ### 1. Stitch multiple clips together
 ```bash
 # Automatically detects order, trims overlaps, and stitches into out.mp4
-stitch-media join part2.mp4 part1.mp4 part3.mp4 -o out.mp4
+uv run stitch-media join part2.mp4 part1.mp4 part3.mp4 -o out.mp4
 
 # Preview timeline and overlap metrics without encoding (dry run)
-stitch-media join clipA.mp4 clipB.mp4 -o out.mp4 --dry-run
+uv run stitch-media join clipA.mp4 clipB.mp4 -o out.mp4 --dry-run
 
 # Handle missing gaps with smooth crossfade rather than black frame padding
-stitch-media join clip1.mp4 clip2.mp4 -o out.mp4 --gap-strategy smooth
+uv run stitch-media join clip1.mp4 clip2.mp4 -o out.mp4 --gap-strategy smooth
 ```
 
 ### 2. Inspect clips before stitching
 ```bash
-stitch-media inspect clipA.mp4 clipB.mp4 clipC.mp4
+uv run stitch-media inspect clipA.mp4 clipB.mp4 clipC.mp4
 ```
 
 Output:
@@ -125,23 +150,23 @@ Output:
 
 **Reverse reconstruction using manifest:**
 ```bash
-stitch-media split out.mp4 --mode manifest --manifest out.manifest.json -o ./restored_clips/
+uv run stitch-media split out.mp4 --mode manifest --manifest out.manifest.json -o ./restored_clips/
 ```
 
 **Autonomous split by visual scenes:**
 ```bash
-stitch-media split presentation.mp4 --mode scene --scene-threshold 0.35 -o ./shots/
+uv run stitch-media split presentation.mp4 --mode scene --scene-threshold 0.35 -o ./shots/
 ```
 
 **Autonomous split by speech silence:**
 ```bash
-stitch-media split podcast.mp4 --mode silence -o ./speech_segments/
+uv run stitch-media split podcast.mp4 --mode silence -o ./speech_segments/
 ```
 
 **Split by fixed duration with overlap window:**
 ```bash
 # Split into 60-second chunks with a 5-second overlap window
-stitch-media split long_video.mp4 --mode duration --duration 60 --overlap 5 -o ./chunks/
+uv run stitch-media split long_video.mp4 --mode duration --duration 60 --overlap 5 -o ./chunks/
 ```
 
 ---
@@ -209,6 +234,41 @@ When stitching, a `.manifest.json` file is produced recording full reproducibili
 3. **平滑融合**：精细裁切重叠画面，音频过渡注入毫秒级淡入淡出彻底消除破音；支持间隙（丢失片段）黑帧补齐或平滑过渡。
 4. **双模逆向/自主拆分**：支持基于 `manifest.json` 无损反向还原原片段；支持场景镜头检测、静音停顿检测以及定长重叠窗自主拆分。
 5. **现代 CLI 与架构**：基于 Typer 与 Rich 构建，支持 `--dry-run` 预览与 GPU 硬件加速。
+
+### 运行方式说明
+
+在使用 `uv sync` 完成依赖同步后，程序可执行文件位于当前项目的独立虚拟环境 `.venv\` 中。推荐以下 3 种使用方式：
+
+#### 方式 1：通过 `uv run` 执行（推荐，无需手动激活环境）
+```bash
+# 查看帮助
+uv run stitch-media --help
+
+# 智能拼接（自动识别先后顺序与消除重叠）
+uv run stitch-media join part2.mp4 part1.mp4 -o final.mp4
+
+# 查看对齐分析与重叠度（不进行视频转码）
+uv run stitch-media inspect part1.mp4 part2.mp4
+```
+
+#### 方式 2：激活本地虚拟环境后直接执行
+- **Windows (PowerShell)**:
+  ```powershell
+  .venv\Scripts\activate
+  stitch-media --help
+  stitch-media join part1.mp4 part2.mp4 -o final.mp4
+  ```
+- **Linux / macOS**:
+  ```bash
+  source .venv/bin/activate
+  stitch-media --help
+  ```
+
+#### 方式 3：全局工具安装（在系统任意路径直接调用）
+```bash
+uv tool install .
+```
+安装后，在终端任何文件夹下输入 `stitch-media` 即可直接使用。
 
 ---
 
