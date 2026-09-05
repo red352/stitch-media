@@ -18,6 +18,8 @@
 
 ## Features
 
+- ⚡ **Lossless Smart Stream Copy (`-c copy`)**: When merging contiguous clips with matching codecs/resolutions (such as split movies or livestream recordings), stitch-media performs ultra-fast direct stream copying via the concat demuxer in seconds with 0% CPU consumption and 0% quality loss.
+- 🚀 **Boundary Sliding Window & Timecode Fast-Path**: Eliminates gigabyte audio extractions on multi-hour media by sampling 120s boundary windows and recognizing standardized timecode patterns (`HH_MM_SS_mmm`).
 - 🎧 **Multimodal Adaptive Alignment**: Combines sub-millisecond FFT normalized cross-correlation (NCC) on acoustic energy with video perceptual hashing (dHash/pHash) and visual difference fallback.
 - 🔀 **Autonomous Sequence Ordering**: Pass disordered or shuffled clips in any order (`part3.mp4`, `part1.mp4`, `part2.mp4`); the tool builds a precedence DAG to discover the true chronological timeline automatically.
 - ✂ **Smart Overlap Trimming & Audio Smoothing**: Detects overlapping intervals, micro-trims duplicate frames cleanly, and applies 50ms micro-crossfades to eliminate audio clicks and phase cancelation.
@@ -25,7 +27,7 @@
 - 🔁 **Dual-Mode Media Splitting**:
   - **Manifest Reverse Mode**: Read `manifest.json` from a previous stitch to reconstruct the exact original clips (including original overlaps).
   - **Autonomous Splitting**: Split video based on visual scene transitions (`--mode scene`), speech pauses (`--mode silence`), or fixed duration with overlap windows (`--mode duration`).
-- ⚡ **GPU Hardware Acceleration**: Autodetects NVIDIA NVENC (`h264_nvenc`), Intel QSV (`h264_qsv`), and Apple VideoToolbox, falling back to CPU `libx264`.
+- ⚡ **GPU Hardware Acceleration**: Autodetects NVIDIA NVENC (`h264_nvenc`), Intel QSV (`h264_qsv`), and Apple VideoToolbox, falling back to CPU `libx264` when re-encoding is necessary.
 - 📊 **Rich CLI & Dry Run**: Beautiful terminal tables, progress bars, and `--dry-run` inspection mode.
 
 ---
@@ -229,11 +231,13 @@ When stitching, a `.manifest.json` file is produced recording full reproducibili
 `stitch-media` 是一个遵循工程化最佳实践构建的智能音视频拼接与拆分工具。
 
 ### 核心亮点
-1. **多模态自适应对齐**：使用音频归一化 FFT 互相关计算毫秒级重叠与偏移量；在静音或低置信度场景下自动结合视频差分感知哈希（pHash）与帧匹配。
-2. **自动时序推导**：支持输入乱序片段，算法自动计算两两关联并基于拓扑路径识别原始先后顺序。
-3. **平滑融合**：精细裁切重叠画面，音频过渡注入毫秒级淡入淡出彻底消除破音；支持间隙（丢失片段）黑帧补齐或平滑过渡。
-4. **双模逆向/自主拆分**：支持基于 `manifest.json` 无损反向还原原片段；支持场景镜头检测、静音停顿检测以及定长重叠窗自主拆分。
-5. **现代 CLI 与架构**：基于 Typer 与 Rich 构建，支持 `--dry-run` 预览与 GPU 硬件加速。
+1. **智能极速无损流拷贝（Smart Stream Copy `-c copy`）**：对编码、分辨率与帧率一致且无重叠的连续分割片段（如电影分段、录播切片），自动切换至 Concat Demuxer 零转码直出，数秒完成数 GB 视频合并，CPU 与画质 0 损耗。
+2. **长视频边界滑动窗口与时间戳快路径**：针对数小时长视频引入首尾 120s 边界滑动窗口提取，并内置常见标准化文件名时间戳（`HH_MM_SS_mmm`）直接对齐，彻底避免全量提取数十兆采样点导致的内存高占用与卡顿。
+3. **多模态自适应对齐**：使用音频归一化 FFT 互相关计算毫秒级重叠与偏移量；在静音或低置信度场景下自动结合视频差分感知哈希（pHash）与帧匹配。
+4. **自动时序推导**：支持输入乱序片段，算法自动计算两两关联并基于拓扑路径识别原始先后顺序。
+5. **平滑融合**：精细裁切重叠画面，音频过渡注入毫秒级淡入淡出彻底消除破音；支持间隙（丢失片段）黑帧补齐或平滑过渡。
+6. **双模逆向/自主拆分**：支持基于 `manifest.json` 无损反向还原原片段；支持场景镜头检测、静音停顿检测以及定长重叠窗自主拆分。
+7. **现代 CLI 与架构**：基于 Typer 与 Rich 构建，支持 `--stream-copy`、`--boundary-window`、`--dry-run` 预览与 GPU 硬件加速。
 
 ### 运行方式说明
 

@@ -1,10 +1,11 @@
 """Media stitching engine with overlap micro-trimming and gap compensation."""
 
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, List, Optional
-import shutil
+from typing import Callable, List, Optional, Tuple
 
 from stitch_media.core.manifest import StitchManifest, SegmentInfo
 from stitch_media.core.order_detector import AlignmentPlan, analyze_and_order_clips
@@ -24,11 +25,64 @@ class GapStrategy(str, Enum):
     CUT = "cut"         # Hard join directly at cut point
 
 
+class StreamCopyMode(str, Enum):
+    AUTO = "auto"       # Lossless fast concat demuxer if stream codecs match & overlap is negligible (<=0.05s)
+    ALWAYS = "always"   # Force concat demuxer stream copy without re-encoding
+    NEVER = "never"     # Always re-encode through filtergraph
+
+
+def can_stream_copy(plan: AlignmentPlan, gap_strategy: GapStrategy) -> Tuple[bool, str]:
+    """
+    Check if clips can be concatenated via lossless stream copy (-c copy).
+    Returns (can_copy, reason).
+    """
+    ordered = plan.ordered_clips
+    if len(ordered) <= 1:
+        return True, "Single clip or empty"
+
+    first_prop = plan.clip_properties[ordered[0]]
+
+    # 1. Check stream compatibility across all clips
+    for p in ordered[1:]:
+        prop = plan.clip_properties[p]
+        if prop.has_video != first_prop.has_video:
+            return False, "Mismatch between video and audio-only streams"
+        if prop.has_audio != first_prop.has_audio:
+            return False, "Mismatch between audio and silent streams"
+
+        if first_prop.has_video:
+            if prop.video_codec != first_prop.video_codec:
+                return False, f"Video codec mismatch: {prop.video_codec} vs {first_prop.video_codec}"
+            if prop.width != first_prop.width or prop.height != first_prop.height:
+                return False, f"Resolution mismatch: {prop.width}x{prop.height} vs {first_prop.width}x{first_prop.height}"
+            if prop.fps is not None and first_prop.fps is not None and abs(prop.fps - first_prop.fps) > 0.05:
+                return False, f"Framerate mismatch: {prop.fps:.2f} vs {first_prop.fps:.2f}"
+
+        if first_prop.has_audio:
+            if prop.audio_codec != first_prop.audio_codec:
+                return False, f"Audio codec mismatch: {prop.audio_codec} vs {first_prop.audio_codec}"
+            if prop.sample_rate != first_prop.sample_rate:
+                return False, f"Audio sample rate mismatch: {prop.sample_rate} vs {first_prop.sample_rate}"
+            if prop.channels != first_prop.channels:
+                return False, f"Audio channel count mismatch: {prop.channels} vs {first_prop.channels}"
+
+    # 2. Check overlap and gap constraints
+    for step in plan.steps:
+        if step.overlap_seconds > 0.05:
+            return False, f"Non-negligible overlap ({step.overlap_seconds:.3f}s) requires re-encoding"
+        if step.gap_seconds > 0.05 and gap_strategy == GapStrategy.PAD:
+            return False, f"Timeline gap ({step.gap_seconds:.3f}s) requires padding via re-encoding"
+
+    return True, "Streams are identical and contiguous"
+
+
 @dataclass
 class StitchConfig:
     """Configuration for stitching media files."""
     output_path: Path
     gap_strategy: GapStrategy = GapStrategy.PAD
+    stream_copy: StreamCopyMode = StreamCopyMode.AUTO
+    boundary_window_sec: float = 120.0
     crossfade_duration: float = 0.05  # 50ms audio micro-crossfade to prevent clicks
     generate_manifest: bool = True
     manifest_path: Optional[Path] = None
@@ -52,7 +106,11 @@ class MediaStitcher:
         3. Build and execute FFmpeg filtergraph
         4. Emit manifest.json
         """
-        plan: AlignmentPlan = analyze_and_order_clips(input_paths, force_order=force_order)
+        plan: AlignmentPlan = analyze_and_order_clips(
+            input_paths,
+            force_order=force_order,
+            boundary_window_sec=self.config.boundary_window_sec,
+        )
         ordered_clips = plan.ordered_clips
         n = len(ordered_clips)
 
@@ -120,14 +178,74 @@ class MediaStitcher:
                 manifest.to_json(manifest_file)
             return manifest
 
+        # Determine rendering method: stream copy vs filtergraph re-encode
+        use_stream_copy = False
+        if self.config.stream_copy == StreamCopyMode.ALWAYS:
+            use_stream_copy = True
+            info("Stream copy forced by user configuration.")
+        elif self.config.stream_copy == StreamCopyMode.AUTO:
+            can_copy, reason = can_stream_copy(plan, self.config.gap_strategy)
+            if can_copy:
+                use_stream_copy = True
+                info(f"Lossless stream copy enabled: {reason}")
+            else:
+                info(f"Stream copy skipped ({reason}), falling back to filtergraph re-encoding.")
+
         # Execute FFmpeg rendering
-        self._render_stitch(plan, segments, current_timeline_time)
+        if use_stream_copy:
+            self._render_stream_copy(plan, segments, current_timeline_time)
+        else:
+            self._render_stitch(plan, segments, current_timeline_time)
 
         if self.config.generate_manifest:
             manifest.to_json(manifest_file)
             success(f"Stitch manifest saved to: {manifest_file}")
 
         return manifest
+
+    def _render_stream_copy(
+        self,
+        plan: AlignmentPlan,
+        segments: List[SegmentInfo],
+        total_duration: float,
+    ) -> None:
+        """Fast lossless stream copy concatenation via FFmpeg concat demuxer (-c copy)."""
+        ffmpeg = find_ffmpeg()
+        ordered = plan.ordered_clips
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            temp_list_path = Path(f.name)
+            for p in ordered:
+                # Concat demuxer expects forward slashes and escaped single quotes
+                clean_path = str(p.resolve()).replace("\\", "/").replace("'", "'\\''")
+                f.write(f"file '{clean_path}'\n")
+
+        try:
+            self.config.output_path.parent.mkdir(parents=True, exist_ok=True)
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(temp_list_path),
+                "-c", "copy",
+            ]
+            if self.config.output_path.suffix.lower() in {".mp4", ".mov", ".m4v", ".m4a"}:
+                cmd.extend(["-movflags", "+faststart"])
+            cmd.append(str(self.config.output_path))
+
+            info("Starting ultra-fast lossless stream copy concatenation...")
+            run_command(
+                cmd,
+                desc="Stream copy stitching",
+                progress_callback=self.config.progress_callback,
+                total_duration=total_duration,
+            )
+        finally:
+            try:
+                temp_list_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def _render_stitch(
         self,

@@ -22,7 +22,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from stitch_media import __version__
 from stitch_media.core.manifest import StitchManifest
 from stitch_media.core.order_detector import analyze_and_order_clips
-from stitch_media.core.stitcher import MediaStitcher, StitchConfig, GapStrategy
+from stitch_media.core.stitcher import MediaStitcher, StitchConfig, GapStrategy, StreamCopyMode
 from stitch_media.core.splitter import MediaSplitter, SplitConfig, SplitMode
 from stitch_media.utils.ffmpeg_runner import (
     find_ffmpeg,
@@ -62,6 +62,17 @@ def join_command(
         False,
         "--force-order",
         help="Preserve provided file order without auto-detecting chronological sequence",
+    ),
+    stream_copy: StreamCopyMode = typer.Option(
+        StreamCopyMode.AUTO,
+        "--stream-copy",
+        "-c",
+        help="Stream copy mode: 'auto' (fast concat if codecs match & no overlap), 'always' (force copy), 'never' (force re-encode)",
+    ),
+    boundary_window: float = typer.Option(
+        120.0,
+        "--boundary-window",
+        help="Boundary sliding window duration in seconds for fast audio alignment on large files",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -107,6 +118,8 @@ def join_command(
         f"Input clips: {len(inputs)} files\n"
         f"Output target: {output}\n"
         f"Gap strategy: {gap_strategy.value}\n"
+        f"Stream copy: {stream_copy.value}\n"
+        f"Boundary window: {boundary_window}s\n"
         f"Dry run: {dry_run}",
         border_style="cyan"
     ))
@@ -122,6 +135,8 @@ def join_command(
         config = StitchConfig(
             output_path=output,
             gap_strategy=gap_strategy,
+            stream_copy=stream_copy,
+            boundary_window_sec=boundary_window,
             generate_manifest=manifest,
             manifest_path=manifest_path,
             hardware_accel=hwaccel,
@@ -224,6 +239,11 @@ def split_command(
 @app.command(name="inspect")
 def inspect_command(
     inputs: List[Path] = typer.Argument(..., help="List of media files to analyze"),
+    boundary_window: float = typer.Option(
+        120.0,
+        "--boundary-window",
+        help="Boundary sliding window duration in seconds for fast audio alignment on large files",
+    ),
 ) -> None:
     """
     Inspect a set of media files, reporting detected order, overlaps, gaps, and audio/video confidence.
@@ -234,7 +254,7 @@ def inspect_command(
             raise typer.Exit(code=1)
 
     info(f"Analyzing {len(inputs)} media files...")
-    plan = analyze_and_order_clips(inputs)
+    plan = analyze_and_order_clips(inputs, boundary_window_sec=boundary_window)
 
     table = Table(title="Media Sequence & Alignment Analysis", show_header=True, header_style="bold blue")
     table.add_column("Order", justify="center", width=6)

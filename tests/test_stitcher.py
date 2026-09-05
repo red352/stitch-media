@@ -3,8 +3,10 @@
 from pathlib import Path
 import pytest
 
-from stitch_media.core.stitcher import MediaStitcher, StitchConfig, GapStrategy
+from stitch_media.core.stitcher import MediaStitcher, StitchConfig, GapStrategy, StreamCopyMode
 from stitch_media.core.probe import probe_media
+from stitch_media.utils.ffmpeg_runner import find_ffmpeg
+import subprocess
 
 
 def test_stitch_dry_run(synthetic_video_pair, tmp_path):
@@ -52,3 +54,38 @@ def test_stitch_render_and_manifest(synthetic_video_pair, tmp_path):
     assert props.has_audio is True
     # 6s + (6s - 2s overlap) = ~10.0s
     assert abs(props.duration - 10.0) < 0.5
+
+
+def test_stitch_stream_copy_contiguous_clips(test_media_dir, tmp_path):
+    """Test fast stream copy on contiguous identical-codec segments."""
+    ffmpeg = find_ffmpeg()
+    master_path = test_media_dir / "master.mp4"
+    seg1 = tmp_path / "video_00_00_00_000_00_00_03_000_seg1.mp4"
+    seg2 = tmp_path / "video_00_00_03_000_00_00_07_000_seg2.mp4"
+
+    # Slice seg1: 0 to 3s
+    subprocess.run([
+        ffmpeg, "-y", "-ss", "0", "-t", "3",
+        "-i", str(master_path), "-c", "copy", str(seg1)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    # Slice seg2: 3 to 7s
+    subprocess.run([
+        ffmpeg, "-y", "-ss", "3", "-t", "4",
+        "-i", str(master_path), "-c", "copy", str(seg2)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    out_file = tmp_path / "stream_copy_out.mp4"
+    config = StitchConfig(
+        output_path=out_file,
+        stream_copy=StreamCopyMode.AUTO,
+    )
+    stitcher = MediaStitcher(config)
+    manifest = stitcher.stitch([seg2, seg1])  # Shuffled input should be sorted by timecode
+
+    assert out_file.exists()
+    props = probe_media(out_file)
+    assert abs(props.duration - 7.0) < 0.5
+    assert len(manifest.segments) == 2
+    assert manifest.segments[0].source_filename == seg1.name
+    assert manifest.segments[1].source_filename == seg2.name

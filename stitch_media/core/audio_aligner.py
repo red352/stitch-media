@@ -19,23 +19,32 @@ class AudioAlignmentResult:
     first_clip_is_a: bool       # True if A precedes B chronologically
 
 
-def extract_pcm_audio(filepath: Path | str, sample_rate: int = 8000) -> Tuple[np.ndarray, int]:
+def extract_pcm_audio(
+    filepath: Path | str,
+    sample_rate: int = 8000,
+    start_sec: Optional[float] = None,
+    duration_sec: Optional[float] = None,
+) -> Tuple[np.ndarray, int]:
     """
     Extract single-channel mono PCM float32 audio from a media file using FFmpeg.
+    Supports fast seeking with start_sec and duration_sec for boundary window extraction.
     Returns (audio_array, sample_rate).
     """
     ffmpeg = find_ffmpeg()
-    cmd = [
-        ffmpeg,
-        "-v", "quiet",
-        "-i", str(filepath),
+    cmd = [ffmpeg, "-v", "quiet"]
+    if start_sec is not None and start_sec > 0:
+        cmd.extend(["-ss", f"{start_sec:.3f}"])
+    cmd.extend(["-i", str(filepath)])
+    if duration_sec is not None and duration_sec > 0:
+        cmd.extend(["-t", f"{duration_sec:.3f}"])
+    cmd.extend([
         "-vn",
         "-f", "s16le",
         "-acodec", "pcm_s16le",
         "-ac", "1",
         "-ar", str(sample_rate),
         "-",
-    ]
+    ])
 
     try:
         proc = subprocess.run(
